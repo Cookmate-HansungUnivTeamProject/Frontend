@@ -115,11 +115,12 @@ class _KitchenShellState extends State<KitchenShell> {
   KitchenDevice? selected;
   late bool splash = widget.showSplash;
   Timer? splashTimer;
-  String expanded = 'gas-2';
+  String expanded = 'gas_1';
   KitchenStore get store => widget.store;
   @override
   void initState() {
     super.initState();
+    store.addListener(showNotice);
     if (splash) {
       splashTimer = Timer(const Duration(milliseconds: 1800), () {
         if (mounted) setState(() => splash = false);
@@ -129,9 +130,55 @@ class _KitchenShellState extends State<KitchenShell> {
 
   @override
   void dispose() {
+    store.removeListener(showNotice);
     splashTimer?.cancel();
     super.dispose();
   }
+
+  /// 서버가 거절한 이유(이미 처리한 주문, 시간 규칙 등)를 아래에 잠깐 띄운다.
+  void showNotice() {
+    final text = store.takeNotice();
+    if (text == null || !mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> editServer() async {
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => ServerDialog(initial: store.apiBase),
+    );
+    if (value != null && value.trim().isNotEmpty) {
+      await store.setApiBase(value);
+    }
+  }
+
+  Widget offlineBar() => Material(
+    color: const Color(0xFF7A2E2E),
+    child: InkWell(
+      onTap: () => setState(() {
+        settings = true;
+        selected = null;
+      }),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            const Icon(Icons.cloud_off, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '서버 연결 안 됨 · ${store.apiBase} (눌러서 주소 바꾸기)',
+                style: const TextStyle(fontSize: 12),
+                maxLines: 2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 
   void go(int value) => setState(() {
     tab = value;
@@ -163,36 +210,46 @@ class _KitchenShellState extends State<KitchenShell> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
-                child: settings
-                    ? settingsPage()
-                    : selected != null
-                    ? DesignDeviceDetail(
-                        device: selected!,
-                        store: store,
-                        back: () => setState(() => selected = null),
-                      )
-                    : switch (tab) {
-                        0 => DesignHome(
-                          store: store,
-                          go: go,
-                          detail: detail,
-                          profile: () => setState(() => settings = true),
-                        ),
-                        1 => DesignOrders(
-                          store: store,
-                          selected: orderTab,
-                          select: (i) => setState(() => orderTab = i),
-                          reject: rejectOrder,
-                        ),
-                        2 => DesignDeviceGrid(store: store, detail: detail),
-                        _ => DesignTimers(
-                          store: store,
-                          expanded: expanded,
-                          toggle: (id) => setState(
-                            () => expanded = expanded == id ? '' : id,
-                          ),
-                        ),
-                      },
+                child: Column(
+                  children: [
+                    if (!store.connected && store.error != null) offlineBar(),
+                    Expanded(
+                      child: settings
+                          ? settingsPage()
+                          : selected != null
+                          ? DesignDeviceDetail(
+                              device: selected!,
+                              store: store,
+                              back: () => setState(() => selected = null),
+                            )
+                          : switch (tab) {
+                              0 => DesignHome(
+                                store: store,
+                                go: go,
+                                detail: detail,
+                                profile: () => setState(() => settings = true),
+                              ),
+                              1 => DesignOrders(
+                                store: store,
+                                selected: orderTab,
+                                select: (i) => setState(() => orderTab = i),
+                                reject: rejectOrder,
+                              ),
+                              2 => DesignDeviceGrid(
+                                store: store,
+                                detail: detail,
+                              ),
+                              _ => DesignTimers(
+                                store: store,
+                                expanded: expanded,
+                                toggle: (id) => setState(
+                                  () => expanded = expanded == id ? '' : id,
+                                ),
+                              ),
+                            },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -256,8 +313,7 @@ class _KitchenShellState extends State<KitchenShell> {
       ),
     );
     if (result == true) {
-      order.status = 3;
-      store.changed();
+      await store.reject(order);
     }
   }
 
@@ -287,6 +343,34 @@ class _KitchenShellState extends State<KitchenShell> {
               ],
             ),
           ),
+        ],
+      ),
+    ),
+    const SizedBox(height: 24),
+    const Text('서버', style: TextStyle(color: muted, fontSize: 12)),
+    const SizedBox(height: 8),
+    Box(
+      child: Row(
+        children: [
+          Icon(
+            store.connected ? Icons.cloud_done_outlined : Icons.cloud_off,
+            size: 20,
+            color: store.connected ? amber : muted,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(store.apiBase, style: const TextStyle(fontSize: 14)),
+                Text(
+                  store.connected ? '연결됨' : (store.error ?? '연결 확인 중'),
+                  style: const TextStyle(color: muted, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          TextButton(onPressed: editServer, child: const Text('바꾸기')),
         ],
       ),
     ),
@@ -363,7 +447,7 @@ class _KitchenShellState extends State<KitchenShell> {
           ),
           SizedBox(height: 14),
           Text(
-            '기기·주문 데이터와 알림 설정은 데모이며 앱을 종료하면 초기화됩니다. 실제 마이크 수집은 연결된 엔진에서 처리합니다.',
+            '기기·타이머·주문은 백엔드 서버에서 1초마다 받아옵니다. 알림·효과음·진동 설정은 앱을 종료하면 초기화됩니다. 실제 마이크 수집은 연결된 엔진에서 처리합니다.',
             style: TextStyle(fontSize: 12, color: muted, height: 1.6),
           ),
         ],
@@ -381,6 +465,59 @@ class _KitchenShellState extends State<KitchenShell> {
       const SizedBox(width: 10),
       Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
       Switch(value: value, onChanged: onChanged),
+    ],
+  );
+}
+
+/// 설정의 서버 주소 바꾸기. 저장하면 주소 문자열을 돌려준다.
+class ServerDialog extends StatefulWidget {
+  const ServerDialog({super.key, required this.initial});
+  final String initial;
+  @override
+  State<ServerDialog> createState() => _ServerDialogState();
+}
+
+class _ServerDialogState extends State<ServerDialog> {
+  late final controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('서버 주소'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            hintText: 'http://192.168.0.10:8000',
+          ),
+          onSubmitted: (v) => Navigator.pop(context, v),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          '같은 PC: http://127.0.0.1:8000 · 에뮬레이터: http://10.0.2.2:8000 · 실제 폰: 백엔드 PC의 IP',
+          style: TextStyle(color: muted, fontSize: 12, height: 1.5),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('취소'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, controller.text),
+        child: const Text('저장'),
+      ),
     ],
   );
 }

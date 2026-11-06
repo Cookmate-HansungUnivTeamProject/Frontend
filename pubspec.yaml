@@ -35,6 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   flutter_svg: ^2.2.0
+  http: ^1.6.0 # 백엔드 API 호출(이미 flutter_svg가 쓰던 버전이라 새로 받을 것 없음)
 
 dev_dependencies:
   flutter_test:

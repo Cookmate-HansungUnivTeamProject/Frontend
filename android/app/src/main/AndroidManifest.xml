@@ -1,8 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 백엔드 서버(GET /api/state 등)에 접속한다. 디버그 빌드에만 있던 권한을 릴리스에도 준다. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 시연 서버는 노트북의 http:// 주소라서 평문 HTTP를 허용한다(안드로이드 9부터 기본 차단). -->
     <application
         android:label="frontend"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

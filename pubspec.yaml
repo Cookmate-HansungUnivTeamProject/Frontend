@@ -36,6 +36,11 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_svg: ^2.2.0
   http: ^1.6.0 # 백엔드 API 호출(이미 flutter_svg가 쓰던 버전이라 새로 받을 것 없음)
+  # "오르보" 호출어(폰 안에서 처리): silero VAD + SenseVoice. 모델 파일은 assets/models/(README 참고)
+  sherpa_onnx: 2.0.1
+  record: ^7.1.2 # 마이크 PCM 스트림(안드로이드 minSdk 24, AGP 9)
+  path_provider: ^2.1.5 # 모델을 앱 저장소로 복사
+  path: ^1.9.0
 
 dev_dependencies:
   flutter_test:
@@ -60,6 +65,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/figma/
+    - assets/models/ # 음성 모델(약 240MB, git에 안 올림). README의 '음성 호출어 → 모델 받기'
   fonts:
     - family: GmarketSans
       fonts:

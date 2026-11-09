@@ -59,6 +59,13 @@ class VoiceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 앱 안의 호출어 엔진(wake_engine.dart)이 듣기 시작하거나 멈출 때 부른다.
+  void setEngineConnected(bool value) {
+    if (connected == value) return;
+    connected = value;
+    notifyListeners();
+  }
+
   Future<void> setEnabled(bool value) async {
     enabled = value;
     if (!value) hide();

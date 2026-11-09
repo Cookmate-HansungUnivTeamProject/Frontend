@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'store.dart';
 import 'voice.dart';
+import 'wake_engine.dart';
 import 'figma_ui.dart';
 
 const amber = Color(0xFFFAA614);
@@ -23,14 +24,23 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   late final KitchenStore store = widget.store ?? KitchenStore();
   late final VoiceController voice = widget.voice ?? VoiceController();
+
+  /// "오르보" 호출어 엔진. 실제 안드로이드 앱에서만 만든다(테스트는 voice를 넘겨서 만들지 않음).
+  WakeEngine? wake;
   @override
   void initState() {
     super.initState();
-    if (widget.voice == null) voice.connect();
+    if (widget.voice == null) {
+      voice.connect();
+      if (WakeEngine.supported) {
+        wake = WakeEngine(voice: voice, store: store);
+      }
+    }
   }
 
   @override
   void dispose() {
+    wake?.dispose();
     if (widget.store == null) store.dispose();
     if (widget.voice == null) voice.dispose();
     super.dispose();
@@ -89,6 +99,7 @@ class _MyAppState extends State<MyApp> {
     home: KitchenShell(
       store: store,
       voice: voice,
+      wake: wake,
       showSplash: widget.showSplash,
     ),
   );
@@ -99,10 +110,12 @@ class KitchenShell extends StatefulWidget {
     super.key,
     required this.store,
     required this.voice,
+    this.wake,
     required this.showSplash,
   });
   final KitchenStore store;
   final VoiceController voice;
+  final WakeEngine? wake;
   final bool showSplash;
   @override
   State<KitchenShell> createState() => _KitchenShellState();
@@ -416,6 +429,7 @@ class _KitchenShellState extends State<KitchenShell> {
               widget.voice.connected ? '온디바이스 엔진 연결됨' : '온디바이스 엔진 연결 대기',
               style: const TextStyle(color: muted, fontSize: 12),
             ),
+            if (widget.wake != null) wakeStatus(widget.wake!),
             const SizedBox(height: 12),
             const Text(
               '오르보를 부르면 어느 화면에서든 음성 패널이 나타납니다.',
@@ -454,6 +468,31 @@ class _KitchenShellState extends State<KitchenShell> {
       ),
     ),
   ]);
+  /// 호출어 엔진 상태와 테스트 기록 버튼(실제 안드로이드 앱에서만 보임).
+  Widget wakeStatus(WakeEngine wake) => ListenableBuilder(
+    listenable: wake,
+    builder: (context, _) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 6),
+        Text(
+          wake.message.isEmpty ? '꺼짐' : wake.message,
+          style: TextStyle(
+            color: wake.status == WakeStatus.error ? Colors.orangeAccent : muted,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => WakeLogPage(engine: wake)),
+          ),
+          icon: const Icon(Icons.list_alt),
+          label: Text('호출어 테스트 기록 (${wake.log.length})'),
+        ),
+      ],
+    ),
+  );
   Widget settingSwitch(
     IconData icon,
     String label,

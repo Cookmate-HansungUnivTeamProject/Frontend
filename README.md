@@ -28,7 +28,7 @@ Android Studio에서 이 폴더를 Open하고, Settings → Languages & Framewor
 - 주문: 수락 → 조리 중 → 완료, 거절 확인 후 취소 처리. 버튼은 백엔드 API로 보냅니다.
 - 기기: 2열 목록(1·2번 가스레인지, 전자레인지, 후드, 환풍기, 냉장고 온도). 전원, 가스레인지 화력, 기기별 타이머.
 - 타이머: 접기/펼치기, 30초 조절(30초~5분), 시작/끄기. 끝나면 '시간이 다 됐어요'와 알람 끄기 버튼이 나옵니다.
-- 설정: 서버 주소와 연결 상태, 알림·효과음·진동 UI, 음성 호출 활성화, 음성 UI 미리보기.
+- 설정: 서버 주소와 연결 상태, 알림·효과음·진동 UI, 음성 호출 활성화, 음성 UI 미리보기, 호출어 테스트 기록(안드로이드 실제 앱).
 - 음성 패널: 앱 최상위에 있어 모든 탭과 설정 위에 표시됩니다. 호출 전에는 숨김 상태입니다.
 
 ## 백엔드 연결
@@ -63,11 +63,64 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - 주문 버튼은 화면 번호(`slot`)가 아니라 주문 `id`로 부릅니다. 화면의 `주문 #N`은 음성으로 부르는 번호(`slot`)입니다.
 - 안드로이드는 `AndroidManifest.xml`에 인터넷 권한과 `usesCleartextTraffic="true"`가 있어야 `http://`로 접속됩니다(넣어 둠).
 
-아직 연결하지 않은 것: 음성 명령(`POST /api/commands`), 라이더 호출 버튼, 알림(`alerts`) 소리·팝업.
+아직 연결하지 않은 것: 라이더 호출 버튼, 알림(`alerts`) 소리·팝업. 음성 명령은 아래 '음성 호출어'(안드로이드 실제 폰)로 보냅니다.
 
-## 온디바이스 연결
+## 음성 호출어 ("오르보", 안드로이드 실제 폰)
 
-실제 wake-word/ASR 모델은 포함되어 있지 않습니다. UI 미리보기는 마이크를 사용하지 않습니다. 엔진을 연결하기 전에는 실제 말로 호출할 수 없습니다.
+폰이 "오르보"를 듣고, 들은 명령 문장을 백엔드로 보냅니다. 소리를 글자로 바꾸는 것까지 폰 안에서 하고(인터넷 없음), 글자를 명령으로 바꾸는 AI는 백엔드가 부릅니다.
+
+```
+폰 마이크 → silero VAD(말소리 구간) → SenseVoice(한국어 글자) → "오르보" 판정 → POST /api/commands {text}
+                                                              백엔드 → AI 서버(/predict) → 실행 → reply
+```
+
+- 코드: `lib/src/wake_word.dart`(판정, 순수 Dart), `lib/src/wake_engine.dart`(마이크·모델·흐름·테스트 기록 화면). 엔진은 안드로이드 실제 앱에서만 켜지고, 결과는 지금 있는 음성 패널(`VoiceController`)에 보입니다.
+- 판정: 문장 맨 앞 2~4글자를 자모로 쪼개 "ㅇㅗㄹㅡㅂㅗ"와 비교해 1개까지 다르면 인정합니다("올보", "오로보", "어르보", "오르보야"는 받고 "오르면", "올려", "오븐"은 거절).
+- "오르보, 후드 켜 줘"처럼 한 번에 말해도 되고, "오르보"만 말하면 6초 동안 다음 말을 명령으로 받습니다.
+- 백엔드가 되묻으면(`needs_input`, "모든 기기를 켤까요?") 호출어 없이 다음 말을 받습니다. 확인 질문에는 "응·네·그래"면 다시 보내고 "아니·취소"면 취소합니다.
+- 앱이 화면에 있을 때만 듣습니다(백그라운드에서는 마이크를 끔). 설정 → 음성 비서 → "오르보로 부르기"로 끄고 켭니다.
+
+### 모델 받기 (처음 한 번)
+
+`assets/models/`에 3개 파일을 넣습니다(약 240MB, git에 안 올림). PowerShell에서:
+
+```powershell
+cd assets\models
+curl.exe -L -o silero_vad.onnx https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+curl.exe -L -o sv.tar.bz2 https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
+tar -xjf sv.tar.bz2
+move sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\model.int8.onnx sense-voice.int8.onnx
+move sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\tokens.txt sense-voice-tokens.txt
+Remove-Item -Recurse sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17, sv.tar.bz2
+cd ..\..
+```
+
+### 시험하기 (폰 + PC)
+
+1. PC에서 AI 서버(AI 저장소)를 켭니다: `uvicorn api:app --host 127.0.0.1 --port 8001`
+2. PC에서 백엔드를 AI 주소와 함께 켭니다(백엔드 README 'AI 서버 연결').
+
+   ```powershell
+   $env:AI_SERVER_URL = "http://127.0.0.1:8001"
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
+   ```
+
+3. 폰을 USB로 연결합니다(개발자 옵션 → USB 디버깅). 폰의 `127.0.0.1:8000`을 PC로 잇습니다. 와이파이가 기기끼리 막혀 있어도 됩니다.
+
+   ```powershell
+   adb reverse tcp:8000 tcp:8000
+   flutter run --dart-define=API_BASE=http://127.0.0.1:8000
+   ```
+
+   `adb`가 없다고 나오면 `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`로 부릅니다. 처음 켤 때 마이크 권한을 허용하고, 모델 복사로 몇 초 기다립니다.
+4. "오르보, 후드 켜 줘"라고 말하면 음성 패널에 들은 문장과 답이 뜨고, 후드 카드가 켜집니다.
+5. 설정 → 음성 비서 → **호출어 테스트 기록**에서 들은 말마다 STT 글자, 호출어 판정(자모 거리), 보낸 명령, AI 명령, 답, 걸린 시간을 봅니다. 오른쪽 위 복사 버튼으로 표를 복사해 시트에 붙여 넣습니다.
+
+에뮬레이터는 마이크 품질이 나빠 실제 폰으로 시험합니다. Chrome·Windows 앱에서는 엔진이 켜지지 않습니다.
+
+## 온디바이스 연결 (다른 엔진을 붙일 때)
+
+앱 안 엔진(`wake_engine.dart`) 대신 다른 wake-word/ASR 엔진을 쓰려면 아래 연결 지점을 씁니다. UI 미리보기는 마이크를 사용하지 않습니다.
 
 Android의 `MainActivity.kt`에 `OrvoVoiceBridge` 연결 지점이 있습니다. 온디바이스 엔진에서 다음 이벤트를 보내세요. 작업 스레드에서 호출해도 메인 스레드로 전달됩니다.
 
@@ -105,4 +158,4 @@ flutter analyze
 flutter test
 ```
 
-`flutter test`는 실제 서버 없이 백엔드 규칙을 흉내 낸 가짜 서버(`test/widget_test.dart`의 `FakeBackend`)로 돕니다.
+`flutter test`는 실제 서버 없이 백엔드 규칙을 흉내 낸 가짜 서버(`test/widget_test.dart`의 `FakeBackend`)로 돕니다. 호출어 판정과 음성 명령 요청 모양은 `test/wake_word_test.dart`가 확인합니다(마이크·모델 없이).

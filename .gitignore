@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# 음성 모델(약 240MB). README의 '음성 호출어 → 모델 받기'로 받는다
+/assets/models/*
+!/assets/models/README.md

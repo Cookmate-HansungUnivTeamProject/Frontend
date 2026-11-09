@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 백엔드 서버(GET /api/state 등)에 접속한다. 디버그 빌드에만 있던 권한을 릴리스에도 준다. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- "오르보" 호출어를 듣는다. 앱이 화면에 있을 때만 쓰고, 소리는 폰 밖으로 보내지 않는다. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- 시연 서버는 노트북의 http:// 주소라서 평문 HTTP를 허용한다(안드로이드 9부터 기본 차단). -->
     <application
         android:label="frontend"

@@ -82,7 +82,19 @@ int editDistance(List<String> a, List<String> b) {
 
 final _wakeJamo = toJamo(wakeWord);
 const _leadingSkip = ' \t\n,.!?~·…"\'“”‘’-';
-const _trailingPunctuation = '.!?。~…';
+const _trailingPunctuation = '.!?~…';
+
+// SenseVoice가 가끔 붙이는 전각 문장부호(？ ！ 。 ， 、)를 일반 문장부호로 바꾼다.
+const _fullWidth = {'？': '?', '！': '!', '。': '.', '，': ',', '、': ','};
+
+/// 전각 문장부호를 일반 문장부호로 바꾼다. 예: "들려？" → "들려?"
+String normalizePunctuation(String text) {
+  var out = text;
+  for (final pair in _fullWidth.entries) {
+    out = out.replaceAll(pair.key, pair.value);
+  }
+  return out;
+}
 
 /// [text]가 "오르보"로 시작하는지 보고, 뒤에 붙은 명령 글자를 떼어 준다.
 ///
@@ -90,7 +102,7 @@ const _trailingPunctuation = '.!?。~…';
 /// - 호출어 바로 뒤에 붙은 "야"·"아"(오르보야)는 뗀다.
 /// - 명령 앞의 쉼표·띄어쓰기와 끝의 마침표·물음표는 뗀다.
 WakeMatch matchWake(String text, {int maxDistance = wakeMaxDistance}) {
-  final runes = text.runes.toList();
+  final runes = normalizePunctuation(text).runes.toList();
   var i = 0;
   while (i < runes.length && _leadingSkip.runes.contains(runes[i])) {
     i++;
@@ -145,7 +157,7 @@ WakeMatch matchWake(String text, {int maxDistance = wakeMaxDistance}) {
 
 /// 끝의 마침표·물음표·느낌표를 뗀다(STT가 붙이는 문장부호. AI 학습 문장에는 없음).
 String stripSentenceEnd(String text) {
-  var t = text.trim();
+  var t = normalizePunctuation(text).trim();
   while (t.isNotEmpty && _trailingPunctuation.contains(t[t.length - 1])) {
     t = t.substring(0, t.length - 1).trimRight();
   }
@@ -154,7 +166,7 @@ String stripSentenceEnd(String text) {
 
 /// 확인 질문("모든 기기를 켤까요?")에 대한 대답. 예면 true, 아니요면 false, 모르겠으면 null.
 bool? yesOrNo(String text) {
-  final t = text.replaceAll(RegExp(r'[\s.,!?~]'), '');
+  final t = normalizePunctuation(text).replaceAll(RegExp(r'[\s.,!?~]'), '');
   const no = ['아니', '아냐', '안돼', '안해', '하지마', '취소', '됐어', '그만'];
   const yes = ['응', '네', '예', '어', '그래', '좋아', '켜', '해줘', '맞아', '부탁'];
   if (no.any(t.startsWith)) return false;

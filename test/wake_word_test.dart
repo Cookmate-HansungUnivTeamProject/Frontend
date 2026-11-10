@@ -67,6 +67,17 @@ void main() {
       }
     });
 
+    test('STT의 전각 문장부호(？ ！ 。 ，)도 일반 문장부호처럼 뗀다', () {
+      final m = matchWake('오르보。후드 켜 줘？');
+      expect(m.matched, isTrue);
+      expect(m.command, '후드 켜 줘');
+      expect(matchWake('오르보！').command, '');
+      expect(stripSentenceEnd('들려려？'), '들려려');
+      expect(normalizePunctuation('후드 켜고，환풍기 꺼 줘。'), '후드 켜고,환풍기 꺼 줘.');
+      expect(yesOrNo('응。'), isTrue);
+      expect(matchWake('어。').matched, isFalse);
+    });
+
     test('자모 쪼개기와 거리', () {
       expect(toJamo('올보'), ['ㅇ', 'ㅗ', 'ㄹ', 'ㅂ', 'ㅗ']);
       expect(toJamo('오르보'), ['ㅇ', 'ㅗ', 'ㄹ', 'ㅡ', 'ㅂ', 'ㅗ']);

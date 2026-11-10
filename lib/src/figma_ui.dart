@@ -226,9 +226,8 @@ class DesignHome extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             Text(
-              d.id == 'fan'
-                  ? '풍량 ${['약', '중', '강'][d.level.clamp(1, 3) - 1]}'
-                  : '화력 ${d.level}',
+              // 세기는 가스레인지 화력만 있다(후드·환풍기는 켜기·끄기만).
+              d.hasLevel ? '화력 ${d.level}' : '',
               style: designText(10, body: true, color: const Color(0xFFCACACA)),
             ),
           ],
@@ -238,8 +237,8 @@ class DesignHome extends StatelessWidget {
   );
   @override
   Widget build(BuildContext context) {
-    final running = store.devices.where((d) => d.running).toList();
-    final d = running.isEmpty ? store.devices[2] : running.first;
+    final running = store.timers.where((d) => d.timerActive).toList();
+    final d = running.isEmpty ? store.device('shared') : running.first;
     final orders = store.orders.where((o) => o.status < 2).toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(26, 26, 23, 36),
@@ -342,9 +341,9 @@ class DesignHome extends StatelessWidget {
         section('기기 제어', 2),
         Row(
           children: [
-            compactDevice(store.devices[1]),
+            compactDevice(store.device('gas_2')),
             const SizedBox(width: 9),
-            compactDevice(store.devices[5]),
+            compactDevice(store.device('fan')),
           ],
         ),
         section('주문 관리', 1),
@@ -394,85 +393,138 @@ class DesignDeviceGrid extends StatelessWidget {
   });
   final KitchenStore store;
   final ValueChanged<KitchenDevice> detail;
-  @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(26, 21, 23, 26),
-    children: [
-      DesignSummary(store: store),
-      const SizedBox(height: 48),
-      GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: store.devices.length - 1,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisExtent: 127,
-          crossAxisSpacing: 9,
-          mainAxisSpacing: 9,
+
+  /// 냉장고는 켜고 끄는 기기가 아니라 온도만 있다(서버 env.fridge_temp).
+  Widget fridgeCard() => DesignCard(
+    color: store.fridgeWarning ? designRunning : const Color(0xFF3D3D3D),
+    padding: const EdgeInsets.fromLTRB(19, 25, 18, 10),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('냉장고', style: designText(20), maxLines: 1),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Container(
+              width: 35,
+              height: 36,
+              decoration: BoxDecoration(
+                color: store.fridgeWarning ? designAmber : designMuted,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Center(
+                child: Icon(
+                  Icons.kitchen_outlined,
+                  size: 22,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '${tempText(store.fridgeTemp)}°C',
+              style: designText(20, body: true),
+            ),
+          ],
         ),
-        itemBuilder: (context, i) {
-          final d = store.devices[i];
-          return DesignCard(
-            onTap: () => detail(d),
-            color: d.running
-                ? designRunning
-                : d.power
-                ? designCard
-                : const Color(0xFF3D3D3D),
-            padding: const EdgeInsets.fromLTRB(19, 25, 18, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(d.name, style: designText(20), maxLines: 1),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Container(
-                      width: 35,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: d.power ? designAmber : designMuted,
-                        borderRadius: BorderRadius.circular(10),
+        const SizedBox(height: 2),
+        Text(
+          store.fridgeWarning
+              ? '온도가 높아요'
+              : '주방 ${tempText(store.kitchenTemp)}°C',
+          style: designText(
+            14,
+            body: true,
+            color: store.fridgeWarning ? designAmber : designMuted,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final items = store.devices.where((d) => d.isDevice).toList();
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(26, 21, 23, 26),
+      children: [
+        DesignSummary(store: store),
+        const SizedBox(height: 48),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: items.length + 1,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisExtent: 127,
+            crossAxisSpacing: 9,
+            mainAxisSpacing: 9,
+          ),
+          itemBuilder: (context, i) {
+            if (i == items.length) return fridgeCard();
+            final d = items[i];
+            return DesignCard(
+              onTap: () => detail(d),
+              color: d.running
+                  ? designRunning
+                  : d.power
+                  ? designCard
+                  : const Color(0xFF3D3D3D),
+              padding: const EdgeInsets.fromLTRB(19, 25, 18, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(d.name, style: designText(20), maxLines: 1),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Container(
+                        width: 35,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: d.power ? designAmber : designMuted,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Center(child: deviceGlyph(d)),
                       ),
-                      child: Center(child: deviceGlyph(d)),
-                    ),
-                    if (d.running)
+                      if (d.running)
+                        Expanded(
+                          child: Container(
+                            height: 36,
+                            color: const Color(0xFF303030),
+                            alignment: Alignment.center,
+                            child: Text(
+                              clockText(d.seconds),
+                              style: designText(20, body: true),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
                       Expanded(
-                        child: Container(
-                          height: 36,
-                          color: const Color(0xFF303030),
-                          alignment: Alignment.center,
-                          child: Text(
-                            clockText(d.seconds),
-                            style: designText(20, body: true),
+                        child: Text(
+                          d.power ? '켜짐' : '꺼짐',
+                          style: designText(
+                            14,
+                            body: true,
+                            color: d.power ? designAmber : designMuted,
                           ),
                         ),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        d.power ? '켜짐' : '꺼짐',
-                        style: designText(
-                          14,
-                          body: true,
-                          color: d.power ? designAmber : designMuted,
-                        ),
-                      ),
-                    ),
-                    designChevron(),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    ],
-  );
+                      designChevron(),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
 }
 
 class DesignTimer extends StatelessWidget {
@@ -492,7 +544,7 @@ class DesignTimer extends StatelessWidget {
   Widget build(BuildContext context) {
     final d = device;
     return DesignCard(
-      color: d.running ? designRunning : designDarkCard,
+      color: d.timerActive ? designRunning : designDarkCard,
       padding: const EdgeInsets.fromLTRB(10, 13, 10, 13),
       child: Column(
         children: [
@@ -507,7 +559,7 @@ class DesignTimer extends StatelessWidget {
                       width: 63,
                       height: 65,
                       decoration: BoxDecoration(
-                        color: d.power ? designAmber : designMuted,
+                        color: d.lit ? designAmber : designMuted,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Center(child: deviceGlyph(d, large: true)),
@@ -531,11 +583,11 @@ class DesignTimer extends StatelessWidget {
                                   ),
                                 ),
                                 TextSpan(
-                                  text: d.power ? '켜짐' : '꺼짐',
+                                  text: d.statusText,
                                   style: designText(
                                     20,
                                     body: true,
-                                    color: d.power ? designAmber : designMuted,
+                                    color: d.lit ? designAmber : designMuted,
                                   ),
                                 ),
                               ],
@@ -567,13 +619,13 @@ class DesignTimer extends StatelessWidget {
                 ],
               ),
             ),
-            if (d.running) ...[
+            if (d.timerActive) ...[
               Padding(
                 padding: const EdgeInsets.fromLTRB(48, 7, 0, 0),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    '남은 시간',
+                    d.ringing ? '시간이 다 됐어요' : '남은 시간',
                     style: designText(
                       20,
                       body: true,
@@ -611,21 +663,15 @@ class DesignTimer extends StatelessWidget {
                   borderRadius: BorderRadius.circular(40),
                 ),
               ),
+              // 서버 타이머는 일시정지가 없다. 끄면 알람도 꺼지고 초기화된다.
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   TextButton(
-                    onPressed: () => store.pause(d),
-                    child: const Text(
-                      '일시정지',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => store.reset(d),
-                    child: const Text(
-                      '초기화',
-                      style: TextStyle(color: Colors.white),
+                    onPressed: () => store.stop(d),
+                    child: Text(
+                      d.ringing ? '알람 끄기' : '끄기',
+                      style: const TextStyle(color: Colors.white),
                     ),
                   ),
                 ],
@@ -641,7 +687,11 @@ class DesignTimer extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    _step('c29cc.svg', () => store.adjust(d, -30), '30초 줄이기'),
+                    _step(
+                      'c29cc.svg',
+                      () => store.adjust(d, -timerStepSec),
+                      '30초 줄이기',
+                    ),
                     Expanded(
                       child: Center(
                         child: Text(
@@ -650,7 +700,11 @@ class DesignTimer extends StatelessWidget {
                         ),
                       ),
                     ),
-                    _step('8be44.svg', () => store.adjust(d, 30), '30초 늘리기'),
+                    _step(
+                      '8be44.svg',
+                      () => store.adjust(d, timerStepSec),
+                      '30초 늘리기',
+                    ),
                   ],
                 ),
               ),
@@ -709,20 +763,15 @@ class DesignTimers extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.fromLTRB(13, 19, 13, 26),
-    children: store.devices
-        .where(
-          (d) =>
-              d.id.startsWith('gas') ||
-              d.id.startsWith('microwave') ||
-              d.id.startsWith('timer'),
-        )
+    // 서버 타이머: 1·2번 가스레인지, 전자레인지, 공용 타이머
+    children: store.timers
         .map(
           (d) => Padding(
             padding: const EdgeInsets.only(bottom: 13),
             child: DesignTimer(
               device: d,
               store: store,
-              expanded: expanded == d.id || d.running,
+              expanded: expanded == d.id || d.timerActive,
               toggle: () => toggle(d.id),
             ),
           ),
@@ -799,13 +848,24 @@ class DesignDeviceDetail extends StatelessWidget {
                 value: d.power,
                 activeThumbColor: Colors.white,
                 activeTrackColor: const Color(0xFF68D12D),
-                onChanged: (v) => store.power(d, v),
+                // 전자레인지는 타이머로 켜고, 여기서는 끄기만 한다.
+                onChanged: d.timerDrivesPower && !d.power
+                    ? null
+                    : (v) => store.power(d, v),
               ),
             ],
           ),
         ),
+        if (d.timerDrivesPower)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+            child: Text(
+              '전자레인지는 아래 타이머로 돌려요. 시간이 끝나거나 끄면 꺼져요.',
+              style: designText(14, body: true, color: designMuted),
+            ),
+          ),
         const SizedBox(height: 9),
-        if (d.id.startsWith('gas') || d.id == 'fan' || d.id == 'hood') ...[
+        if (d.hasLevel) ...[
           DesignCard(
             color: designDarkCard,
             child: Column(
@@ -813,27 +873,26 @@ class DesignDeviceDetail extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        d.id.startsWith('gas') ? '화력' : '풍량',
-                        style: designText(25, body: true),
-                      ),
+                      child: Text('화력', style: designText(25, body: true)),
                     ),
                     Text(
-                      '${d.level}',
+                      d.power ? '${d.level}' : '-',
                       style: designText(25, body: true, color: designAmber),
                     ),
                   ],
                 ),
                 Slider(
-                  value: d.level.toDouble(),
+                  // 꺼진 기기는 서버가 level 0을 보내서 1~3 안으로 맞춘다.
+                  value: d.level.clamp(1, 3).toDouble(),
                   min: 1,
                   max: 3,
                   divisions: 2,
+                  // 움직이는 동안은 화면만 바꾸고, 손을 떼면 정수로 서버에 보낸다.
                   onChanged: d.power
-                      ? (v) {
-                          d.level = v.round();
-                          store.changed();
-                        }
+                      ? (v) => store.previewLevel(d, v.round())
+                      : null,
+                  onChangeEnd: d.power
+                      ? (v) => store.setLevel(d, v.round())
                       : null,
                 ),
                 Row(
@@ -852,7 +911,7 @@ class DesignDeviceDetail extends StatelessWidget {
           ),
           const SizedBox(height: 9),
         ],
-        DesignTimer(device: d, store: store, header: false),
+        if (d.hasTimer) DesignTimer(device: d, store: store, header: false),
       ],
     );
   }
@@ -992,18 +1051,16 @@ class DesignOrders extends StatelessWidget {
                         const SizedBox(width: 9),
                         Expanded(
                           flex: 186,
-                          child: _button('주문 수락', designAmber, () {
-                            o.status = 1;
-                            store.changed();
-                          }),
+                          child: _button(
+                            '주문 수락',
+                            designAmber,
+                            () => store.accept(o),
+                          ),
                         ),
                       ],
                     )
                   else if (o.status == 1)
-                    _button('조리 완료', designAmber, () {
-                      o.status = 2;
-                      store.changed();
-                    })
+                    _button('조리 완료', designAmber, () => store.complete(o))
                   else
                     Text(
                       o.status == 3 ? '취소된 주문' : '조리가 완료되었습니다',

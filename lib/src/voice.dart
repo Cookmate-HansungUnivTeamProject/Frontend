@@ -11,6 +11,9 @@ class VoiceController extends ChangeNotifier {
   StreamSubscription<dynamic>? _subscription;
   Timer? _dismiss;
   bool enabled = true;
+
+  /// 오르보의 답을 소리로 읽을지(설정 → 음성 비서 → "답을 소리로 읽기").
+  bool speakReplies = true;
   bool visible = false;
   bool connected = false;
   String phase = 'listening';
@@ -56,6 +59,19 @@ class VoiceController extends ChangeNotifier {
       phase = type == 'error' ? 'error' : 'response';
     }
     _dismiss = Timer(Duration(seconds: phase == 'listening' ? 15 : 8), hide);
+    notifyListeners();
+  }
+
+  /// 앱 안의 호출어 엔진(wake_engine.dart)이 듣기 시작하거나 멈출 때 부른다.
+  void setEngineConnected(bool value) {
+    if (connected == value) return;
+    connected = value;
+    notifyListeners();
+  }
+
+  void setSpeakReplies(bool value) {
+    if (speakReplies == value) return;
+    speakReplies = value;
     notifyListeners();
   }
 

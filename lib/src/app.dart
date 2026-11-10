@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'speaker.dart';
 import 'store.dart';
 import 'voice.dart';
+import 'wake_engine.dart';
 import 'figma_ui.dart';
+import 'settings_page.dart';
 
 const amber = Color(0xFFFAA614);
 const background = Color(0xFF262626);
@@ -23,14 +26,23 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   late final KitchenStore store = widget.store ?? KitchenStore();
   late final VoiceController voice = widget.voice ?? VoiceController();
+
+  /// "오르보" 호출어 엔진과 답 읽기(TTS). 실제 안드로이드 앱에서만 만든다(테스트는 voice를 넘겨서 만들지 않음).
+  WakeEngine? wake;
   @override
   void initState() {
     super.initState();
-    if (widget.voice == null) voice.connect();
+    if (widget.voice == null) {
+      voice.connect();
+      if (WakeEngine.supported) {
+        wake = WakeEngine(voice: voice, store: store, speaker: Speaker());
+      }
+    }
   }
 
   @override
   void dispose() {
+    wake?.dispose();
     if (widget.store == null) store.dispose();
     if (widget.voice == null) voice.dispose();
     super.dispose();
@@ -89,6 +101,7 @@ class _MyAppState extends State<MyApp> {
     home: KitchenShell(
       store: store,
       voice: voice,
+      wake: wake,
       showSplash: widget.showSplash,
     ),
   );
@@ -99,10 +112,12 @@ class KitchenShell extends StatefulWidget {
     super.key,
     required this.store,
     required this.voice,
+    this.wake,
     required this.showSplash,
   });
   final KitchenStore store;
   final VoiceController voice;
+  final WakeEngine? wake;
   final bool showSplash;
   @override
   State<KitchenShell> createState() => _KitchenShellState();
@@ -115,11 +130,12 @@ class _KitchenShellState extends State<KitchenShell> {
   KitchenDevice? selected;
   late bool splash = widget.showSplash;
   Timer? splashTimer;
-  String expanded = 'gas-2';
+  String expanded = 'gas_1';
   KitchenStore get store => widget.store;
   @override
   void initState() {
     super.initState();
+    store.addListener(showNotice);
     if (splash) {
       splashTimer = Timer(const Duration(milliseconds: 1800), () {
         if (mounted) setState(() => splash = false);
@@ -129,9 +145,45 @@ class _KitchenShellState extends State<KitchenShell> {
 
   @override
   void dispose() {
+    store.removeListener(showNotice);
     splashTimer?.cancel();
     super.dispose();
   }
+
+  /// 서버가 거절한 이유(이미 처리한 주문, 시간 규칙 등)를 아래에 잠깐 띄운다.
+  void showNotice() {
+    final text = store.takeNotice();
+    if (text == null || !mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Widget offlineBar() => Material(
+    color: const Color(0xFF7A2E2E),
+    child: InkWell(
+      onTap: () => setState(() {
+        settings = true;
+        selected = null;
+      }),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            const Icon(Icons.cloud_off, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '서버 연결 안 됨 · ${store.apiBase} (눌러서 주소 바꾸기)',
+                style: const TextStyle(fontSize: 12),
+                maxLines: 2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 
   void go(int value) => setState(() {
     tab = value;
@@ -163,36 +215,51 @@ class _KitchenShellState extends State<KitchenShell> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
-                child: settings
-                    ? settingsPage()
-                    : selected != null
-                    ? DesignDeviceDetail(
-                        device: selected!,
-                        store: store,
-                        back: () => setState(() => selected = null),
-                      )
-                    : switch (tab) {
-                        0 => DesignHome(
-                          store: store,
-                          go: go,
-                          detail: detail,
-                          profile: () => setState(() => settings = true),
-                        ),
-                        1 => DesignOrders(
-                          store: store,
-                          selected: orderTab,
-                          select: (i) => setState(() => orderTab = i),
-                          reject: rejectOrder,
-                        ),
-                        2 => DesignDeviceGrid(store: store, detail: detail),
-                        _ => DesignTimers(
-                          store: store,
-                          expanded: expanded,
-                          toggle: (id) => setState(
-                            () => expanded = expanded == id ? '' : id,
-                          ),
-                        ),
-                      },
+                child: Column(
+                  children: [
+                    if (!store.connected && store.error != null) offlineBar(),
+                    Expanded(
+                      child: settings
+                          ? SettingsPage(
+                              store: store,
+                              voice: widget.voice,
+                              wake: widget.wake,
+                              onBack: () => setState(() => settings = false),
+                            )
+                          : selected != null
+                          ? DesignDeviceDetail(
+                              device: selected!,
+                              store: store,
+                              back: () => setState(() => selected = null),
+                            )
+                          : switch (tab) {
+                              0 => DesignHome(
+                                store: store,
+                                go: go,
+                                detail: detail,
+                                profile: () => setState(() => settings = true),
+                              ),
+                              1 => DesignOrders(
+                                store: store,
+                                selected: orderTab,
+                                select: (i) => setState(() => orderTab = i),
+                                reject: rejectOrder,
+                              ),
+                              2 => DesignDeviceGrid(
+                                store: store,
+                                detail: detail,
+                              ),
+                              _ => DesignTimers(
+                                store: store,
+                                expanded: expanded,
+                                toggle: (id) => setState(
+                                  () => expanded = expanded == id ? '' : id,
+                                ),
+                              ),
+                            },
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -200,42 +267,6 @@ class _KitchenShellState extends State<KitchenShell> {
         ),
       );
     },
-  );
-  Widget page(List<Widget> children) => ListView(
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-    children: children,
-  );
-  Widget title(String text, {String? subtitle, VoidCallback? back}) => Padding(
-    padding: const EdgeInsets.only(bottom: 20),
-    child: Row(
-      children: [
-        if (back != null)
-          IconButton(
-            onPressed: back,
-            icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-            tooltip: '뒤로',
-          ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (subtitle != null)
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: muted, fontSize: 12),
-                ),
-            ],
-          ),
-        ),
-      ],
-    ),
   );
   Future<void> rejectOrder(KitchenOrder order) async {
     final result = await showDialog<bool>(
@@ -256,149 +287,9 @@ class _KitchenShellState extends State<KitchenShell> {
       ),
     );
     if (result == true) {
-      order.status = 3;
-      store.changed();
+      await store.reject(order);
     }
   }
-
-  Widget settingsPage() => page([
-    title(
-      '설정',
-      subtitle: '나에게 맞는 주방으로',
-      back: () => setState(() => settings = false),
-    ),
-    const Box(
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: Color(0xFF66503B),
-            child: Icon(Icons.person, color: Color(0xFFE5C6A3)),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('준셰프', style: TextStyle(fontWeight: FontWeight.w600)),
-                Text(
-                  'ORVO 데모 주방',
-                  style: TextStyle(fontSize: 12, color: muted),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('일반', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    Box(
-      child: Column(
-        children: [
-          settingSwitch(Icons.notifications_none, '알림', store.notifications, (
-            v,
-          ) {
-            store.notifications = v;
-            store.changed();
-          }),
-          settingSwitch(Icons.volume_up_outlined, '효과음', store.sound, (v) {
-            store.sound = v;
-            store.changed();
-          }),
-          settingSwitch(Icons.vibration, '진동', store.vibration, (v) {
-            store.vibration = v;
-            store.changed();
-          }),
-        ],
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('음성 비서', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    ListenableBuilder(
-      listenable: widget.voice,
-      builder: (context, _) => Box(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            settingSwitch(
-              Icons.graphic_eq,
-              '“오르보”로 부르기',
-              widget.voice.enabled,
-              (v) => widget.voice.setEnabled(v),
-            ),
-            Text(
-              widget.voice.connected ? '온디바이스 엔진 연결됨' : '온디바이스 엔진 연결 대기',
-              style: const TextStyle(color: muted, fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '오르보를 부르면 어느 화면에서든 음성 패널이 나타납니다.',
-              style: TextStyle(fontSize: 12, color: muted, height: 1.6),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: widget.voice.enabled ? widget.voice.preview : null,
-              icon: const Icon(Icons.mic_none),
-              label: const Text('음성 UI 미리보기'),
-            ),
-          ],
-        ),
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('앱 정보', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    const Box(
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.info_outline, size: 20),
-              SizedBox(width: 10),
-              Expanded(child: Text('앱 버전')),
-              Text('1.0.0', style: TextStyle(color: muted)),
-            ],
-          ),
-          SizedBox(height: 14),
-          Text(
-            '기기·주문 데이터와 알림 설정은 데모이며 앱을 종료하면 초기화됩니다. 실제 마이크 수집은 연결된 엔진에서 처리합니다.',
-            style: TextStyle(fontSize: 12, color: muted, height: 1.6),
-          ),
-        ],
-      ),
-    ),
-  ]);
-  Widget settingSwitch(
-    IconData icon,
-    String label,
-    bool value,
-    ValueChanged<bool> onChanged,
-  ) => Row(
-    children: [
-      Icon(icon, size: 20),
-      const SizedBox(width: 10),
-      Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
-      Switch(value: value, onChanged: onChanged),
-    ],
-  );
-}
-
-class Box extends StatelessWidget {
-  const Box({super.key, required this.child, this.color = panel});
-  final Widget child;
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: color,
-      borderRadius: BorderRadius.circular(18),
-    ),
-    child: child,
-  );
 }
 
 class VoiceCard extends StatelessWidget {

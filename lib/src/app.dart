@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'store.dart';
 import 'voice.dart';
 import 'figma_ui.dart';
+import 'settings_page.dart';
 
 const amber = Color(0xFFFAA614);
 const background = Color(0xFF262626);
@@ -164,7 +165,11 @@ class _KitchenShellState extends State<KitchenShell> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
                 child: settings
-                    ? settingsPage()
+                    ? SettingsPage(
+                        store: store,
+                        voice: widget.voice,
+                        onBack: () => setState(() => settings = false),
+                      )
                     : selected != null
                     ? DesignDeviceDetail(
                         device: selected!,
@@ -201,42 +206,6 @@ class _KitchenShellState extends State<KitchenShell> {
       );
     },
   );
-  Widget page(List<Widget> children) => ListView(
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-    children: children,
-  );
-  Widget title(String text, {String? subtitle, VoidCallback? back}) => Padding(
-    padding: const EdgeInsets.only(bottom: 20),
-    child: Row(
-      children: [
-        if (back != null)
-          IconButton(
-            onPressed: back,
-            icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-            tooltip: '뒤로',
-          ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (subtitle != null)
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: muted, fontSize: 12),
-                ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
   Future<void> rejectOrder(KitchenOrder order) async {
     final result = await showDialog<bool>(
       context: context,
@@ -260,145 +229,6 @@ class _KitchenShellState extends State<KitchenShell> {
       store.changed();
     }
   }
-
-  Widget settingsPage() => page([
-    title(
-      '설정',
-      subtitle: '나에게 맞는 주방으로',
-      back: () => setState(() => settings = false),
-    ),
-    const Box(
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: Color(0xFF66503B),
-            child: Icon(Icons.person, color: Color(0xFFE5C6A3)),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('준셰프', style: TextStyle(fontWeight: FontWeight.w600)),
-                Text(
-                  'ORVO 데모 주방',
-                  style: TextStyle(fontSize: 12, color: muted),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('일반', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    Box(
-      child: Column(
-        children: [
-          settingSwitch(Icons.notifications_none, '알림', store.notifications, (
-            v,
-          ) {
-            store.notifications = v;
-            store.changed();
-          }),
-          settingSwitch(Icons.volume_up_outlined, '효과음', store.sound, (v) {
-            store.sound = v;
-            store.changed();
-          }),
-          settingSwitch(Icons.vibration, '진동', store.vibration, (v) {
-            store.vibration = v;
-            store.changed();
-          }),
-        ],
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('음성 비서', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    ListenableBuilder(
-      listenable: widget.voice,
-      builder: (context, _) => Box(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            settingSwitch(
-              Icons.graphic_eq,
-              '“오르보”로 부르기',
-              widget.voice.enabled,
-              (v) => widget.voice.setEnabled(v),
-            ),
-            Text(
-              widget.voice.connected ? '온디바이스 엔진 연결됨' : '온디바이스 엔진 연결 대기',
-              style: const TextStyle(color: muted, fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '오르보를 부르면 어느 화면에서든 음성 패널이 나타납니다.',
-              style: TextStyle(fontSize: 12, color: muted, height: 1.6),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: widget.voice.enabled ? widget.voice.preview : null,
-              icon: const Icon(Icons.mic_none),
-              label: const Text('음성 UI 미리보기'),
-            ),
-          ],
-        ),
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('앱 정보', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    const Box(
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.info_outline, size: 20),
-              SizedBox(width: 10),
-              Expanded(child: Text('앱 버전')),
-              Text('1.0.0', style: TextStyle(color: muted)),
-            ],
-          ),
-          SizedBox(height: 14),
-          Text(
-            '기기·주문 데이터와 알림 설정은 데모이며 앱을 종료하면 초기화됩니다. 실제 마이크 수집은 연결된 엔진에서 처리합니다.',
-            style: TextStyle(fontSize: 12, color: muted, height: 1.6),
-          ),
-        ],
-      ),
-    ),
-  ]);
-  Widget settingSwitch(
-    IconData icon,
-    String label,
-    bool value,
-    ValueChanged<bool> onChanged,
-  ) => Row(
-    children: [
-      Icon(icon, size: 20),
-      const SizedBox(width: 10),
-      Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
-      Switch(value: value, onChanged: onChanged),
-    ],
-  );
-}
-
-class Box extends StatelessWidget {
-  const Box({super.key, required this.child, this.color = panel});
-  final Widget child;
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: color,
-      borderRadius: BorderRadius.circular(18),
-    ),
-    child: child,
-  );
 }
 
 class VoiceCard extends StatelessWidget {

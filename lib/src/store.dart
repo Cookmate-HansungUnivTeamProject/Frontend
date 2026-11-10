@@ -86,6 +86,7 @@ class KitchenStore extends ChangeNotifier {
     d.running = false;
     d.deadline = null;
     d.seconds = d.duration;
+    if (_turnsOffWhenTimerStops(d)) d.power = false;
     notifyListeners();
   }
 
@@ -99,12 +100,17 @@ class KitchenStore extends ChangeNotifier {
       if (remaining != d.seconds) changed = true;
       d.seconds = remaining;
       if (remaining == 0) {
+        changed = true;
         d.running = false;
         d.deadline = null;
+        if (_turnsOffWhenTimerStops(d)) d.power = false;
       }
     }
     if (changed) notifyListeners();
   }
+
+  bool _turnsOffWhenTimerStops(KitchenDevice d) =>
+      d.id.startsWith('microwave') || d.id.startsWith('timer');
 
   @override
   void dispose() {

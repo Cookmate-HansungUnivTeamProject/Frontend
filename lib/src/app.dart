@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'speaker.dart';
 import 'store.dart';
 import 'voice.dart';
 import 'wake_engine.dart';
@@ -26,7 +27,7 @@ class _MyAppState extends State<MyApp> {
   late final KitchenStore store = widget.store ?? KitchenStore();
   late final VoiceController voice = widget.voice ?? VoiceController();
 
-  /// "오르보" 호출어 엔진. 실제 안드로이드 앱에서만 만든다(테스트는 voice를 넘겨서 만들지 않음).
+  /// "오르보" 호출어 엔진과 답 읽기(TTS). 실제 안드로이드 앱에서만 만든다(테스트는 voice를 넘겨서 만들지 않음).
   WakeEngine? wake;
   @override
   void initState() {
@@ -34,7 +35,7 @@ class _MyAppState extends State<MyApp> {
     if (widget.voice == null) {
       voice.connect();
       if (WakeEngine.supported) {
-        wake = WakeEngine(voice: voice, store: store);
+        wake = WakeEngine(voice: voice, store: store, speaker: Speaker());
       }
     }
   }

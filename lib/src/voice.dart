@@ -11,6 +11,9 @@ class VoiceController extends ChangeNotifier {
   StreamSubscription<dynamic>? _subscription;
   Timer? _dismiss;
   bool enabled = true;
+
+  /// 오르보의 답을 소리로 읽을지(설정 → 음성 비서 → "답을 소리로 읽기").
+  bool speakReplies = true;
   bool visible = false;
   bool connected = false;
   String phase = 'listening';
@@ -63,6 +66,12 @@ class VoiceController extends ChangeNotifier {
   void setEngineConnected(bool value) {
     if (connected == value) return;
     connected = value;
+    notifyListeners();
+  }
+
+  void setSpeakReplies(bool value) {
+    if (speakReplies == value) return;
+    speakReplies = value;
     notifyListeners();
   }
 

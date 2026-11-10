@@ -133,6 +133,13 @@ class SettingsPage extends StatelessWidget {
                 value: voice.enabled,
                 onChanged: voice.setEnabled,
               ),
+              _SettingSwitchTile(
+                key: const Key('speak-setting'),
+                icon: Icons.record_voice_over_outlined,
+                label: '답을 소리로 읽기',
+                value: voice.speakReplies,
+                onChanged: voice.setSpeakReplies,
+              ),
               Text(
                 voice.connected ? '온디바이스 엔진 연결됨' : '온디바이스 엔진 연결 대기',
                 style: designText(12, body: true, color: designMuted),
@@ -140,7 +147,7 @@ class SettingsPage extends StatelessWidget {
               if (wake != null) _WakeStatus(wake: wake!),
               const SizedBox(height: 12),
               Text(
-                '오르보를 부르면 어느 화면에서든 음성 패널이 나타납니다.',
+                '오르보를 부르면 어느 화면에서든 음성 패널이 나타나고, 답을 소리로 읽어 줍니다.',
                 style: designText(
                   12,
                   body: true,
@@ -290,6 +297,13 @@ class _WakeStatus extends StatelessWidget {
                 : designMuted,
           ),
         ),
+        if (wake.speakProblem.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            wake.speakProblem,
+            style: designText(12, body: true, color: Colors.orangeAccent),
+          ),
+        ],
         const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: () => Navigator.of(context).push(

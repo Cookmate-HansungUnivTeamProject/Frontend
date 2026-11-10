@@ -272,6 +272,35 @@ void main() {
     voice.dispose();
   });
 
+  testWidgets('Reading replies aloud can be turned off in settings', (
+    tester,
+  ) async {
+    final store = storeFor(FakeBackend());
+    final voice = VoiceController();
+    await tester.pumpWidget(
+      MyApp(store: store, voice: voice, showSplash: false),
+    );
+    await tester.tap(find.byKey(const Key('profile')));
+    await tester.pumpAndSettle();
+    expect(voice.speakReplies, isTrue);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('speak-setting')),
+      250,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('speak-setting')),
+        matching: find.byType(Switch),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(voice.speakReplies, isFalse);
+    await tester.pumpWidget(const SizedBox());
+    store.dispose();
+    voice.dispose();
+  });
+
   testWidgets('Server address can be changed in settings', (tester) async {
     final fake = FakeBackend();
     final store = storeFor(fake);

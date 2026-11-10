@@ -41,6 +41,7 @@ dependencies:
   record: ^7.1.2 # 마이크 PCM 스트림(안드로이드 minSdk 24, AGP 9)
   path_provider: ^2.1.5 # 모델을 앱 저장소로 복사
   path: ^1.9.0
+  flutter_tts: ^4.2.5 # 오르보의 답을 폰 TTS로 읽기
 
 dev_dependencies:
   flutter_test:

@@ -3,6 +3,7 @@
 // 마이크(16kHz) → [작업 isolate: silero VAD로 말 구간 자르기 → SenseVoice(한국어)로 글자]
 //   → "오르보" 판정(wake_word.dart) → POST /api/commands {text}
 //   → 백엔드가 AI 서버로 명령을 받아 실행하고 답(reply)을 돌려준다(백엔드에 AI_SERVER_URL 필요).
+//   → 답을 소리로 읽는다(speaker.dart, 폰의 TTS). 읽는 동안은 마이크 소리를 STT로 보내지 않는다.
 //
 // 모델 파일은 assets/models/에 넣는다(README '음성 호출어'). 인터넷 없이 폰 안에서만 처리한다.
 
@@ -19,6 +20,7 @@ import 'package:record/record.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
 
 import 'api.dart';
+import 'speaker.dart';
 import 'store.dart';
 import 'voice.dart';
 import 'wake_word.dart';
@@ -107,7 +109,9 @@ class WakeEngine extends ChangeNotifier {
   WakeEngine({
     required this.voice,
     required this.store,
+    this.speaker,
     this.listenWindow = const Duration(seconds: 6),
+    this.echoTail = const Duration(milliseconds: 300),
   }) {
     voice.addListener(_onVoiceChanged);
     _lifecycle = AppLifecycleListener(onPause: _pauseMic, onResume: _resumeMic);
@@ -121,8 +125,14 @@ class WakeEngine extends ChangeNotifier {
   final VoiceController voice;
   final KitchenStore store;
 
+  /// 답을 소리로 읽는 곳. null이면 읽지 않는다.
+  final Speaker? speaker;
+
   /// "오르보"만 말했거나 백엔드가 되물은 뒤, 다음 말을 기다리는 시간.
   final Duration listenWindow;
+
+  /// 다 읽은 뒤에도 이만큼은 듣지 않는다(스피커 소리가 방에 남아 있는 동안).
+  final Duration echoTail;
 
   WakeStatus status = WakeStatus.off;
 
@@ -146,11 +156,20 @@ class WakeEngine extends ChangeNotifier {
   bool _wanted = false; // 사용자가 켜 두었는지(설정 스위치)
   bool _starting = false;
   bool _disposed = false;
+  bool _muted = false; // 답을 읽는 중(마이크 소리를 STT로 보내지 않음)
   int _requestSeq = 0;
 
   bool get running => _micSub != null;
 
+  /// 답 읽기에 생긴 문제(한국어 TTS 음성 없음 등). 없으면 빈 문자열.
+  String get speakProblem => speaker?.problem ?? '';
+
   void _onVoiceChanged() {
+    // 설정에서 "답을 소리로 읽기"를 끄면 읽던 것도 멈춘다.
+    final speaker = this.speaker;
+    if (!voice.speakReplies && speaker != null && speaker.speaking) {
+      unawaited(speaker.stop());
+    }
     if (voice.enabled == _wanted) return;
     if (voice.enabled) {
       unawaited(start());
@@ -184,6 +203,7 @@ class WakeEngine extends ChangeNotifier {
   /// 마이크를 끈다(모델은 메모리에 남겨 다시 켤 때 빠르게).
   Future<void> stop() async {
     _wanted = false;
+    await speaker?.stop();
     await _stopMic();
     _endWindow();
     voice.setEngineConnected(false);
@@ -192,6 +212,7 @@ class WakeEngine extends ChangeNotifier {
 
   Future<void> _pauseMic() async {
     if (running) {
+      await speaker?.stop();
       await _stopMic();
       _endWindow();
       _set(WakeStatus.off, '앱이 화면에 없을 때는 듣지 않아요');
@@ -295,11 +316,16 @@ class WakeEngine extends ChangeNotifier {
         encoder: AudioEncoder.pcm16bits,
         sampleRate: _sampleRate,
         numChannels: 1,
+        // 기본값(pause)이면 녹음이 오디오 포커스를 잡고 있다가, 답을 읽는 TTS가 포커스를 가져가는 순간
+        // 녹음이 멈추고 다시 켜지지 않는다. 앱이 뒤로 갈 때 마이크를 끄는 건 엔진이 직접 한다.
+        audioInterruption: AudioInterruptionMode.none,
       ),
     );
     _toWorker?.send('reset');
     _micSub = stream.listen(
-      (chunk) => _toWorker?.send(chunk),
+      (chunk) {
+        if (!_muted) _toWorker?.send(chunk);
+      },
       onError: (Object e) => _set(WakeStatus.error, '마이크 오류: $e'),
     );
     voice.setEngineConnected(true);
@@ -384,7 +410,7 @@ class WakeEngine extends ChangeNotifier {
           entry.note = '확인: 아니요';
           _endWindow();
           voice.receive({'type': 'response', 'text': '취소했어요.'});
-          _idle();
+          unawaited(_reply('취소했어요.', listen: false));
           return;
         }
       }
@@ -431,6 +457,8 @@ class WakeEngine extends ChangeNotifier {
     voice.receive({'type': 'final', 'text': command});
     final id = requestId ?? 'v${DateTime.now().microsecondsSinceEpoch}-${_requestSeq++}';
     final watch = Stopwatch()..start();
+    var spoken = ''; // 소리로 읽을 답
+    var listen = false; // 답을 읽은 뒤 다음 말을 기다릴지(되묻기·확인 질문)
     try {
       final res = await store.api.command(command, raw: raw, confirm: confirm, requestId: id);
       if (_disposed) return;
@@ -443,13 +471,12 @@ class WakeEngine extends ChangeNotifier {
         'type': entry.ok! ? 'response' : 'error',
         'text': reply.isEmpty ? '(답 없음)' : reply,
       });
+      spoken = reply;
       if (res['needs_confirm'] == true) {
         _pendingConfirm = _PendingConfirm(command, entry.raw, id);
-        _startWindow();
+        listen = true;
       } else if (res['needs_input'] == true) {
-        _startWindow();
-      } else {
-        _idle();
+        listen = true;
       }
       unawaited(store.refresh()); // 기기 카드를 1초 기다리지 않고 바로 맞춘다
     } on ApiException catch (e) {
@@ -458,7 +485,7 @@ class WakeEngine extends ChangeNotifier {
         ..ok = false
         ..reply = e.message;
       voice.receive({'type': 'error', 'text': e.message});
-      _idle();
+      spoken = e.message;
     } catch (e) {
       // 예상 못 한 응답 모양 등. '처리 중'에 멈춰 다음 말을 못 듣는 일이 없게 한다.
       if (_disposed) return;
@@ -466,10 +493,42 @@ class WakeEngine extends ChangeNotifier {
         ..ok = false
         ..reply = '앱 오류: $e';
       voice.receive({'type': 'error', 'text': '다시 말씀해 주세요'});
-      _idle();
+      spoken = '다시 말씀해 주세요.';
     } finally {
+      // 전체 시간은 답을 받을 때까지(읽는 시간은 빼고).
       entry.totalMs = sttMs + watch.elapsedMilliseconds;
       if (!_disposed) notifyListeners();
+    }
+    await _reply(spoken, listen: listen);
+  }
+
+  /// 답을 읽은 뒤, 되물었으면 다음 말을 기다리고 아니면 "오르보" 대기로 돌아간다.
+  /// 기다리는 6초는 다 읽은 다음부터 센다.
+  Future<void> _reply(String text, {required bool listen}) async {
+    await _speak(text);
+    if (_disposed) return;
+    if (listen) {
+      _startWindow();
+    } else {
+      _idle();
+    }
+  }
+
+  /// 답을 소리로 읽는다. 읽는 동안은 마이크 소리를 STT로 보내지 않는다.
+  /// 그러지 않으면 "모든 기기를 켤까요?"를 읽은 소리를 사용자의 대답으로 받아 버린다.
+  Future<void> _speak(String text) async {
+    final speaker = this.speaker;
+    if (speaker == null || !voice.speakReplies || !running || _disposed) return;
+    if (spokenText(text).isEmpty) return;
+    _muted = true;
+    _set(WakeStatus.busy, '답을 읽는 중');
+    try {
+      await speaker.say(text);
+      if (!_disposed) await Future<void>.delayed(echoTail);
+    } finally {
+      _muted = false;
+      speaking = false;
+      _toWorker?.send('reset'); // 읽기 전에 듣던 말 조각도 버리고 새로 듣는다
     }
   }
 
@@ -542,6 +601,7 @@ class WakeEngine extends ChangeNotifier {
     voice.removeListener(_onVoiceChanged);
     _lifecycle.dispose();
     _windowTimer?.cancel();
+    unawaited(speaker?.stop());
     _micSub?.cancel();
     _recorder?.dispose();
     _toWorker?.send('close');

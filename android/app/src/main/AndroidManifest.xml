@@ -47,5 +47,9 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- 오르보의 답을 읽는 폰 TTS 엔진(삼성·구글 TTS)을 찾는다. 안드로이드 11부터 필요(flutter_tts). -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>

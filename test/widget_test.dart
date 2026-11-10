@@ -222,6 +222,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('나에게 맞는 주방으로'), findsOneWidget);
     expect(find.text('http://test'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('notification-setting')),
+        matching: find.byType(Switch),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(store.notifications, isFalse);
     voice.receive({'type': 'wake'});
     voice.receive({'type': 'partial', 'text': '오르보, 타이머 켜줘'});
     await tester.pump();
@@ -235,6 +243,58 @@ void main() {
       expect(tester.takeException(), isNull);
     }
     voice.hide();
+    await tester.pumpWidget(const SizedBox());
+    store.dispose();
+    voice.dispose();
+  });
+
+  testWidgets('Unavailable logout is presented as a demo action', (
+    tester,
+  ) async {
+    final store = storeFor(FakeBackend());
+    final voice = VoiceController();
+    await tester.pumpWidget(
+      MyApp(store: store, voice: voice, showSplash: false),
+    );
+    await tester.tap(find.byKey(const Key('profile')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('logout-setting')),
+      250,
+    );
+    // 스크롤한 위치는 다음 프레임에 화면에 반영된다. 그 전에 누르면 아래 탭 바를 누르게 된다.
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('logout-setting')));
+    await tester.pump();
+    expect(find.text('로그인 기능 연결 후 사용할 수 있어요.'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    store.dispose();
+    voice.dispose();
+  });
+
+  testWidgets('Server address can be changed in settings', (tester) async {
+    final fake = FakeBackend();
+    final store = storeFor(fake);
+    final voice = VoiceController();
+    await tester.pumpWidget(
+      MyApp(store: store, voice: voice, showSplash: false),
+    );
+    await tester.tap(find.byKey(const Key('profile')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('바꾸기'));
+    await tester.pumpAndSettle();
+    expect(find.text('서버 주소'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '10.0.2.2:8000/');
+    await tester.tap(find.text('저장'));
+    await tester.pumpAndSettle();
+    expect(store.apiBase, 'http://10.0.2.2:8000');
+    expect(
+      fake.requests.last.url.toString(),
+      'http://10.0.2.2:8000/api/state',
+    );
+    expect(store.connected, isTrue);
+    expect(find.text('http://10.0.2.2:8000'), findsOneWidget);
+    expect(find.text('연결됨'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     store.dispose();
     voice.dispose();
@@ -353,6 +413,63 @@ void main() {
     await store.power(mw, false);
     expect(mw.power, isFalse);
     expect(mw.timerState, 'idle');
+    store.dispose();
+  });
+
+  // 타이머가 끝났을 때 전원을 끄는 일은 백엔드가 한다(app/core.py _sync_linked).
+  // 백엔드는 끝난 타이머를 ringing(알람)으로 두고 전자레인지 전원을 끈다. 앱은 그 상태를 그대로 보여 준다.
+  testWidgets('Finished microwave timer rings while the microwave is off', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final fake = FakeBackend();
+    fake.timers['microwave']!
+      ..['set_sec'] = 90
+      ..['remaining_sec'] = 0
+      ..['state'] = 'ringing';
+    final store = storeFor(fake);
+    final voice = VoiceController();
+    final mw = store.device('microwave');
+    expect(mw.ringing, isTrue);
+    expect(mw.power, isFalse);
+    expect(mw.statusText, '꺼짐');
+    await tester.pumpWidget(
+      MyApp(store: store, voice: voice, showSplash: false),
+    );
+    await tester.tap(find.byKey(const Key('nav-3')));
+    await tester.pumpAndSettle();
+    expect(find.text('시간이 다 됐어요'), findsOneWidget);
+    await tester.ensureVisible(find.text('알람 끄기'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('알람 끄기'));
+    await tester.pumpAndSettle();
+    expect(fake.posts, contains('/api/timers/microwave/stop'));
+    expect(mw.timerState, 'idle');
+    expect(mw.power, isFalse);
+    expect(find.text('시간이 다 됐어요'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    store.dispose();
+    voice.dispose();
+  });
+
+  test('Shared timer has no power: it rings, then waits again', () async {
+    final fake = FakeBackend();
+    fake.timers['shared']!
+      ..['set_sec'] = 60
+      ..['remaining_sec'] = 0
+      ..['state'] = 'ringing';
+    final store = storeFor(fake);
+    final shared = store.device('shared');
+    expect(shared.isDevice, isFalse);
+    expect(shared.statusText, '알람');
+    expect(shared.lit, isTrue);
+    await store.stop(shared);
+    expect(fake.posts, contains('/api/timers/shared/stop'));
+    expect(shared.timerState, 'idle');
+    expect(shared.statusText, '대기');
+    expect(shared.lit, isFalse);
     store.dispose();
   });
 

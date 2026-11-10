@@ -6,6 +6,7 @@ import 'store.dart';
 import 'voice.dart';
 import 'wake_engine.dart';
 import 'figma_ui.dart';
+import 'settings_page.dart';
 
 const amber = Color(0xFFFAA614);
 const background = Color(0xFF262626);
@@ -157,16 +158,6 @@ class _KitchenShellState extends State<KitchenShell> {
       ..showSnackBar(SnackBar(content: Text(text)));
   }
 
-  Future<void> editServer() async {
-    final value = await showDialog<String>(
-      context: context,
-      builder: (context) => ServerDialog(initial: store.apiBase),
-    );
-    if (value != null && value.trim().isNotEmpty) {
-      await store.setApiBase(value);
-    }
-  }
-
   Widget offlineBar() => Material(
     color: const Color(0xFF7A2E2E),
     child: InkWell(
@@ -228,7 +219,12 @@ class _KitchenShellState extends State<KitchenShell> {
                     if (!store.connected && store.error != null) offlineBar(),
                     Expanded(
                       child: settings
-                          ? settingsPage()
+                          ? SettingsPage(
+                              store: store,
+                              voice: widget.voice,
+                              wake: widget.wake,
+                              onBack: () => setState(() => settings = false),
+                            )
                           : selected != null
                           ? DesignDeviceDetail(
                               device: selected!,
@@ -271,42 +267,6 @@ class _KitchenShellState extends State<KitchenShell> {
       );
     },
   );
-  Widget page(List<Widget> children) => ListView(
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-    children: children,
-  );
-  Widget title(String text, {String? subtitle, VoidCallback? back}) => Padding(
-    padding: const EdgeInsets.only(bottom: 20),
-    child: Row(
-      children: [
-        if (back != null)
-          IconButton(
-            onPressed: back,
-            icon: const Icon(Icons.arrow_back_ios_new, size: 20),
-            tooltip: '뒤로',
-          ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              if (subtitle != null)
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: muted, fontSize: 12),
-                ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
   Future<void> rejectOrder(KitchenOrder order) async {
     final result = await showDialog<bool>(
       context: context,
@@ -329,252 +289,6 @@ class _KitchenShellState extends State<KitchenShell> {
       await store.reject(order);
     }
   }
-
-  Widget settingsPage() => page([
-    title(
-      '설정',
-      subtitle: '나에게 맞는 주방으로',
-      back: () => setState(() => settings = false),
-    ),
-    const Box(
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: Color(0xFF66503B),
-            child: Icon(Icons.person, color: Color(0xFFE5C6A3)),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('준셰프', style: TextStyle(fontWeight: FontWeight.w600)),
-                Text(
-                  'ORVO 데모 주방',
-                  style: TextStyle(fontSize: 12, color: muted),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('서버', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    Box(
-      child: Row(
-        children: [
-          Icon(
-            store.connected ? Icons.cloud_done_outlined : Icons.cloud_off,
-            size: 20,
-            color: store.connected ? amber : muted,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(store.apiBase, style: const TextStyle(fontSize: 14)),
-                Text(
-                  store.connected ? '연결됨' : (store.error ?? '연결 확인 중'),
-                  style: const TextStyle(color: muted, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          TextButton(onPressed: editServer, child: const Text('바꾸기')),
-        ],
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('일반', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    Box(
-      child: Column(
-        children: [
-          settingSwitch(Icons.notifications_none, '알림', store.notifications, (
-            v,
-          ) {
-            store.notifications = v;
-            store.changed();
-          }),
-          settingSwitch(Icons.volume_up_outlined, '효과음', store.sound, (v) {
-            store.sound = v;
-            store.changed();
-          }),
-          settingSwitch(Icons.vibration, '진동', store.vibration, (v) {
-            store.vibration = v;
-            store.changed();
-          }),
-        ],
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('음성 비서', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    ListenableBuilder(
-      listenable: widget.voice,
-      builder: (context, _) => Box(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            settingSwitch(
-              Icons.graphic_eq,
-              '“오르보”로 부르기',
-              widget.voice.enabled,
-              (v) => widget.voice.setEnabled(v),
-            ),
-            Text(
-              widget.voice.connected ? '온디바이스 엔진 연결됨' : '온디바이스 엔진 연결 대기',
-              style: const TextStyle(color: muted, fontSize: 12),
-            ),
-            if (widget.wake != null) wakeStatus(widget.wake!),
-            const SizedBox(height: 12),
-            const Text(
-              '오르보를 부르면 어느 화면에서든 음성 패널이 나타납니다.',
-              style: TextStyle(fontSize: 12, color: muted, height: 1.6),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: widget.voice.enabled ? widget.voice.preview : null,
-              icon: const Icon(Icons.mic_none),
-              label: const Text('음성 UI 미리보기'),
-            ),
-          ],
-        ),
-      ),
-    ),
-    const SizedBox(height: 24),
-    const Text('앱 정보', style: TextStyle(color: muted, fontSize: 12)),
-    const SizedBox(height: 8),
-    const Box(
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.info_outline, size: 20),
-              SizedBox(width: 10),
-              Expanded(child: Text('앱 버전')),
-              Text('1.0.0', style: TextStyle(color: muted)),
-            ],
-          ),
-          SizedBox(height: 14),
-          Text(
-            '기기·타이머·주문은 백엔드 서버에서 1초마다 받아옵니다. 알림·효과음·진동 설정은 앱을 종료하면 초기화됩니다. 실제 마이크 수집은 연결된 엔진에서 처리합니다.',
-            style: TextStyle(fontSize: 12, color: muted, height: 1.6),
-          ),
-        ],
-      ),
-    ),
-  ]);
-  /// 호출어 엔진 상태와 테스트 기록 버튼(실제 안드로이드 앱에서만 보임).
-  Widget wakeStatus(WakeEngine wake) => ListenableBuilder(
-    listenable: wake,
-    builder: (context, _) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 6),
-        Text(
-          wake.message.isEmpty ? '꺼짐' : wake.message,
-          style: TextStyle(
-            color: wake.status == WakeStatus.error ? Colors.orangeAccent : muted,
-            fontSize: 12,
-          ),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => WakeLogPage(engine: wake)),
-          ),
-          icon: const Icon(Icons.list_alt),
-          label: Text('호출어 테스트 기록 (${wake.log.length})'),
-        ),
-      ],
-    ),
-  );
-  Widget settingSwitch(
-    IconData icon,
-    String label,
-    bool value,
-    ValueChanged<bool> onChanged,
-  ) => Row(
-    children: [
-      Icon(icon, size: 20),
-      const SizedBox(width: 10),
-      Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
-      Switch(value: value, onChanged: onChanged),
-    ],
-  );
-}
-
-/// 설정의 서버 주소 바꾸기. 저장하면 주소 문자열을 돌려준다.
-class ServerDialog extends StatefulWidget {
-  const ServerDialog({super.key, required this.initial});
-  final String initial;
-  @override
-  State<ServerDialog> createState() => _ServerDialogState();
-}
-
-class _ServerDialogState extends State<ServerDialog> {
-  late final controller = TextEditingController(text: widget.initial);
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('서버 주소'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.url,
-          decoration: const InputDecoration(
-            hintText: 'http://192.168.0.10:8000',
-          ),
-          onSubmitted: (v) => Navigator.pop(context, v),
-        ),
-        const SizedBox(height: 10),
-        const Text(
-          '같은 PC: http://127.0.0.1:8000 · 에뮬레이터: http://10.0.2.2:8000 · 실제 폰: 백엔드 PC의 IP',
-          style: TextStyle(color: muted, fontSize: 12, height: 1.5),
-        ),
-      ],
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('취소'),
-      ),
-      FilledButton(
-        onPressed: () => Navigator.pop(context, controller.text),
-        child: const Text('저장'),
-      ),
-    ],
-  );
-}
-
-class Box extends StatelessWidget {
-  const Box({super.key, required this.child, this.color = panel});
-  final Widget child;
-  final Color color;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: color,
-      borderRadius: BorderRadius.circular(18),
-    ),
-    child: child,
-  );
 }
 
 class VoiceCard extends StatelessWidget {
